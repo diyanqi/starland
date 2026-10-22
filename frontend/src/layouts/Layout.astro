@@ -1,0 +1,124 @@
+---
+import '../styles/global.css';
+import Icon from '../components/Icon.astro';
+
+interface Props {
+  title?: string;
+  description?: string;
+}
+
+const {
+  title = '拾光星岛',
+  description = '一座属于我们班的小岛：把照片和心事放上来，让光慢慢长大。',
+} = Astro.props;
+
+const path = Astro.url.pathname;
+const navItems = [
+  { href: '/', label: '首页', icon: 'home' as const },
+  { href: '/photos', label: '照片墙', icon: 'camera' as const },
+  { href: '/island', label: '文字岛', icon: 'message' as const },
+];
+const isActive = (href: string) => (href === '/' ? path === '/' : path.startsWith(href));
+const pageTitle = title === '拾光星岛' ? title : `${title} · 拾光星岛`;
+---
+
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="theme-color" content="#fbf7ef" />
+    <meta name="description" content={description} />
+    <meta property="og:title" content={pageTitle} />
+    <meta property="og:description" content={description} />
+    <meta property="og:type" content="website" />
+    <meta name="robots" content="index, follow" />
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <title>{pageTitle}</title>
+  </head>
+  <body class="min-h-dvh font-sans text-ink antialiased">
+    <div class="flex min-h-dvh flex-col">
+      <header class="sticky top-0 z-40 border-b border-line/60 bg-paper/80 backdrop-blur-md">
+        <div class="mx-auto flex w-full max-w-6xl items-center justify-between px-4 py-3 sm:px-6">
+          <a href="/" class="group flex items-center gap-2.5">
+            <span
+              class="grid size-9 place-items-center rounded-full bg-sea/10 text-sea-deep transition group-hover:bg-sea/20"
+            >
+              <Icon name="sparkle" class="size-5" />
+            </span>
+            <span class="flex flex-col leading-none">
+              <span class="font-serif text-lg tracking-wide">拾光星岛</span>
+              <span class="mt-1 text-[10px] tracking-[0.24em] text-ink-soft/80">SHIGUANG ISLAND</span>
+            </span>
+          </a>
+
+          <nav class="hidden items-center gap-1 md:flex" aria-label="主导航">
+            {
+              navItems.map((item) => (
+                <a
+                  href={item.href}
+                  aria-current={isActive(item.href) ? 'page' : undefined}
+                  class:list={[
+                    'rounded-full px-4 py-2 text-sm transition',
+                    isActive(item.href)
+                      ? 'bg-ink text-paper'
+                      : 'text-ink-soft hover:bg-white/70 hover:text-ink',
+                  ]}
+                >
+                  {item.label}
+                </a>
+              ))
+            }
+          </nav>
+
+          <a href="/photos" class="btn-ghost px-4 py-2 text-xs md:hidden">＋ 放照片</a>
+        </div>
+      </header>
+
+      <main class="mx-auto w-full max-w-6xl flex-1 px-4 pb-28 pt-6 sm:px-6 md:pb-16 sm:pt-10">
+        <slot />
+      </main>
+
+      <footer class="border-t border-line/60 px-4 pb-24 pt-8 text-center text-xs text-ink-soft md:pb-8">
+        <p class="font-serif text-sm text-ink/80">愿你在这里，拾到一束光 ✦</p>
+        <p class="mt-2">
+          <a href="/admin" class="inline-flex items-center gap-1 transition hover:text-ink">
+            <Icon name="lock" class="size-3.5" />
+            管理入口
+          </a>
+        </p>
+      </footer>
+    </div>
+
+    <nav
+      class="fixed inset-x-0 bottom-0 z-40 border-t border-line/80 bg-paper/95 backdrop-blur md:hidden"
+      style="padding-bottom: env(safe-area-inset-bottom)"
+      aria-label="移动端导航"
+    >
+      <div class="grid grid-cols-3">
+        {
+          navItems.map((item) => (
+            <a
+              href={item.href}
+              aria-current={isActive(item.href) ? 'page' : undefined}
+              class:list={[
+                'flex flex-col items-center gap-1 py-2.5 text-[11px] transition',
+                isActive(item.href) ? 'text-sea-deep' : 'text-ink-soft',
+              ]}
+            >
+              <span
+                class:list={[
+                  'grid size-9 place-items-center rounded-full transition',
+                  isActive(item.href) ? 'bg-sea/15' : '',
+                ]}
+              >
+                <Icon name={item.icon} class="size-5" />
+              </span>
+              {item.label}
+            </a>
+          ))
+        }
+      </div>
+    </nav>
+  </body>
+</html>

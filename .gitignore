@@ -1,0 +1,21 @@
+# dependencies
+frontend/node_modules/
+
+# build output
+frontend/dist/
+frontend/.astro/
+backend/web/dist/
+bin/
+shiguang-island
+
+# runtime data
+backend/uploads/
+uploads/
+*.log
+.env
+.env.local
+
+# editor / os
+.DS_Store
+.idea/
+.vscode/

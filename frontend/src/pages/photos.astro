@@ -1,0 +1,342 @@
+---
+import Layout from '../layouts/Layout.astro';
+import Icon from '../components/Icon.astro';
+---
+
+<Layout title="照片墙" description="拾光星岛的照片墙：上传属于我们班的瞬间，写下图注，给喜欢的光点个赞。">
+  <section class="pt-2 sm:pt-6">
+    <div class="flex flex-wrap items-end justify-between gap-4">
+      <div>
+        <p class="section-kicker">Photo Wall</p>
+        <h1 class="mt-3 font-serif text-3xl sm:text-4xl">把今天的光，挂上墙</h1>
+        <p class="mt-2 max-w-lg text-sm leading-6 text-ink-soft">
+          不追求完美构图，只收藏真实瞬间。支持 JPG / PNG / GIF / WebP，单张不超过 8MB。
+        </p>
+      </div>
+      <button id="open-upload" type="button" class="btn-primary">
+        <Icon name="camera" class="size-4" />
+        放一张照片
+      </button>
+    </div>
+
+    <form id="upload-panel" class="card mt-6 hidden p-5 sm:p-6">
+      <div class="grid gap-5 sm:grid-cols-[minmax(0,1fr)_minmax(0,1.15fr)]">
+        <div>
+          <label
+            for="photo-file"
+            id="drop-zone"
+            class="flex aspect-[4/3] cursor-pointer flex-col items-center justify-center overflow-hidden rounded-2xl border border-dashed border-line bg-paper-deep/40 text-center transition hover:border-sea/60"
+          >
+            <img id="photo-preview" class="hidden size-full object-cover" alt="图片预览" />
+            <span id="drop-hint" class="flex flex-col items-center gap-2 px-4 text-sm text-ink-soft">
+              <Icon name="camera" class="size-6 text-sea-deep" />
+              点按选择一张图片
+            </span>
+          </label>
+          <input
+            id="photo-file"
+            name="image"
+            type="file"
+            accept="image/jpeg,image/png,image/gif,image/webp"
+            class="sr-only"
+          />
+        </div>
+
+        <div class="flex flex-col gap-3">
+          <div>
+            <label for="photo-caption" class="text-xs text-ink-soft">
+              图注 <span class="text-ink-soft/60">（可选，最多 200 字）</span>
+            </label>
+            <input
+              id="photo-caption"
+              name="caption"
+              maxlength="200"
+              class="field mt-1.5"
+              placeholder="这一秒，发生了什么？"
+            />
+          </div>
+          <div>
+            <label for="photo-nickname" class="text-xs text-ink-soft">
+              昵称 <span class="text-ink-soft/60">（留空则匿名）</span>
+            </label>
+            <input
+              id="photo-nickname"
+              name="nickname"
+              maxlength="24"
+              class="field mt-1.5"
+              placeholder="匿名星友"
+            />
+          </div>
+          <p id="upload-hint" class="text-xs text-ink-soft/80" aria-live="polite"></p>
+          <div class="mt-auto flex justify-end gap-2 pt-2">
+            <button type="button" id="cancel-upload" class="btn-ghost px-4 py-2">取消</button>
+            <button type="submit" id="submit-upload" class="btn-primary px-5 py-2">挂上墙</button>
+          </div>
+        </div>
+      </div>
+    </form>
+
+    <div class="mt-8 flex items-center justify-between gap-3">
+      <p class="text-xs tracking-wide text-ink-soft">按时间倒序 · 点击图片可放大</p>
+      <p class="text-[11px] text-ink-soft/60">♡ 轻点即喜欢</p>
+    </div>
+
+    <div id="photo-grid" class="photo-grid mt-4 columns-2 gap-3 sm:columns-3 sm:gap-4 lg:columns-4"></div>
+    <div id="photo-empty" class="empty-state mt-4 hidden">
+      还没有照片。成为第一个放下光的人吧 ✦
+    </div>
+
+    <div class="mt-8 text-center">
+      <button id="load-more" type="button" class="btn-ghost hidden">看更早的光</button>
+    </div>
+  </section>
+
+  <div
+    id="lightbox"
+    class="fixed inset-0 z-[60] hidden items-center justify-center bg-ink/85 p-4 backdrop-blur-sm"
+    role="dialog"
+    aria-modal="true"
+    aria-label="照片预览"
+  >
+    <button
+      id="lightbox-close"
+      type="button"
+      class="absolute right-4 top-4 grid size-10 place-items-center rounded-full bg-white/10 text-white transition hover:bg-white/20"
+      aria-label="关闭预览"
+    >
+      <Icon name="close" class="size-5" />
+    </button>
+    <img id="lightbox-img" alt="" class="max-h-[85vh] max-w-full rounded-2xl object-contain shadow-2xl" />
+  </div>
+</Layout>
+
+<script>
+  import { api, type PageResult, type Photo } from '../lib/client/api';
+  import { errorMessage, escapeHtml, formatTime, toast } from '../lib/client/ui';
+
+  const MAX_UPLOAD_BYTES = 8 * 1024 * 1024;
+
+  const grid = document.querySelector<HTMLElement>('#photo-grid');
+  const empty = document.querySelector<HTMLElement>('#photo-empty');
+  const loadMore = document.querySelector<HTMLButtonElement>('#load-more');
+  const openButton = document.querySelector<HTMLButtonElement>('#open-upload');
+  const cancelButton = document.querySelector<HTMLButtonElement>('#cancel-upload');
+  const form = document.querySelector<HTMLFormElement>('#upload-panel');
+  const fileInput = document.querySelector<HTMLInputElement>('#photo-file');
+  const preview = document.querySelector<HTMLImageElement>('#photo-preview');
+  const dropHint = document.querySelector<HTMLElement>('#drop-hint');
+  const uploadHint = document.querySelector<HTMLElement>('#upload-hint');
+  const submitButton = document.querySelector<HTMLButtonElement>('#submit-upload');
+
+  const lightbox = document.querySelector<HTMLElement>('#lightbox');
+  const lightboxImage = document.querySelector<HTMLImageElement>('#lightbox-img');
+  const lightboxClose = document.querySelector<HTMLButtonElement>('#lightbox-close');
+
+  let cursor = 0;
+  let loading = false;
+  let exhausted = false;
+  let previewUrl: string | null = null;
+
+  function photoCard(photo: Photo): string {
+    return `
+      <article class="photo-card mb-3 break-inside-avoid overflow-hidden rounded-2xl border border-line/70 bg-white/75 shadow-soft sm:mb-4">
+        <button type="button" class="block w-full cursor-zoom-in" data-lightbox="${escapeHtml(photo.url)}"
+                aria-label="放大查看照片">
+          <img src="${escapeHtml(photo.url)}" alt="${escapeHtml(photo.caption || '同学分享的照片')}"
+               loading="lazy" class="w-full object-cover" />
+        </button>
+        <div class="space-y-2 px-3 py-3">
+          ${photo.caption ? `<p class="text-[13px] leading-6 text-ink/90">${escapeHtml(photo.caption)}</p>` : ''}
+          <div class="flex items-center justify-between gap-2 text-[11px] text-ink-soft">
+            <span class="min-w-0 truncate">${escapeHtml(photo.nickname)}</span>
+            <div class="flex shrink-0 items-center gap-1.5">
+              <time datetime="${escapeHtml(photo.createdAt)}">${formatTime(photo.createdAt)}</time>
+              <button type="button" class="like-btn ${photo.liked ? 'liked' : ''}" data-like="${photo.id}"
+                      aria-label="给这张照片点赞" aria-pressed="${photo.liked}">
+                <svg class="size-3.5" viewBox="0 0 24 24" fill="${photo.liked ? 'currentColor' : 'none'}"
+                     stroke="currentColor" stroke-width="1.8" aria-hidden="true">
+                  <path d="M12 20s-7-4.35-7-9.5A4.5 4.5 0 0 1 12 7a4.5 4.5 0 0 1 7 3.5C19 15.65 12 20 12 20Z" />
+                </svg>
+                <span data-likes>${photo.likes}</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      </article>`;
+  }
+
+  async function loadPhotos(reset = false) {
+    if (!grid || loading || (!reset && exhausted)) return;
+    loading = true;
+    if (loadMore) {
+      loadMore.disabled = true;
+      loadMore.textContent = '正在打捞…';
+    }
+
+    try {
+      const query = new URLSearchParams({ limit: '24' });
+      if (!reset && cursor > 0) query.set('cursor', String(cursor));
+
+      const result = await api<PageResult<Photo>>(`/api/photos?${query.toString()}`);
+      if (reset) grid.innerHTML = '';
+      grid.insertAdjacentHTML('beforeend', result.items.map(photoCard).join(''));
+
+      cursor = result.nextCursor;
+      exhausted = result.nextCursor === 0;
+      loadMore?.classList.toggle('hidden', exhausted);
+      empty?.classList.toggle('hidden', grid.children.length > 0);
+    } catch (error) {
+      toast(errorMessage(error), 'error');
+    } finally {
+      loading = false;
+      if (loadMore) {
+        loadMore.disabled = false;
+        loadMore.textContent = '看更早的光';
+      }
+    }
+  }
+
+  grid?.addEventListener('click', async (event) => {
+    const target = event.target as HTMLElement;
+
+    const imageButton = target.closest<HTMLElement>('[data-lightbox]');
+    if (imageButton) {
+      openLightbox(imageButton.dataset.lightbox ?? '');
+      return;
+    }
+
+    const likeButton = target.closest<HTMLButtonElement>('[data-like]');
+    if (!likeButton || likeButton.disabled) return;
+
+    const id = Number(likeButton.dataset.like);
+    if (!Number.isFinite(id)) return;
+
+    likeButton.disabled = true;
+    try {
+      const result = await api<{ likes: number; liked: boolean }>(`/api/photos/${id}/like`, {
+        method: 'POST',
+      });
+      const count = likeButton.querySelector<HTMLElement>('[data-likes]');
+      if (count) count.textContent = String(result.likes);
+      if (result.liked) {
+        likeButton.classList.add('liked');
+        likeButton.setAttribute('aria-pressed', 'true');
+        const svg = likeButton.querySelector('svg');
+        svg?.setAttribute('fill', 'currentColor');
+      }
+    } catch (error) {
+      toast(errorMessage(error), 'error');
+    } finally {
+      likeButton.disabled = false;
+    }
+  });
+
+  function openLightbox(url: string) {
+    if (!lightbox || !lightboxImage || !url) return;
+    lightboxImage.src = url;
+    lightboxImage.alt = '照片预览';
+    lightbox.classList.remove('hidden');
+    lightbox.classList.add('flex');
+    document.body.style.overflow = 'hidden';
+  }
+
+  function closeLightbox() {
+    if (!lightbox || !lightboxImage) return;
+    lightbox.classList.add('hidden');
+    lightbox.classList.remove('flex');
+    lightboxImage.removeAttribute('src');
+    document.body.style.overflow = '';
+  }
+
+  lightbox?.addEventListener('click', (event) => {
+    if (event.target === lightbox) closeLightbox();
+  });
+  lightboxClose?.addEventListener('click', closeLightbox);
+  document.addEventListener('keydown', (event) => {
+    if (event.key === 'Escape') closeLightbox();
+  });
+
+  openButton?.addEventListener('click', () => {
+    form?.classList.remove('hidden');
+    openButton.setAttribute('aria-expanded', 'true');
+    form?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  });
+
+  function resetUploadForm() {
+    form?.reset();
+    if (previewUrl) {
+      URL.revokeObjectURL(previewUrl);
+      previewUrl = null;
+    }
+    preview?.classList.add('hidden');
+    preview?.removeAttribute('src');
+    dropHint?.classList.remove('hidden');
+    if (uploadHint) uploadHint.textContent = '';
+    form?.classList.add('hidden');
+    openButton?.setAttribute('aria-expanded', 'false');
+  }
+
+  cancelButton?.addEventListener('click', resetUploadForm);
+
+  fileInput?.addEventListener('change', () => {
+    const file = fileInput.files?.[0];
+    if (!file) return;
+    if (!file.type.startsWith('image/')) {
+      toast('请选择图片文件', 'error');
+      fileInput.value = '';
+      return;
+    }
+    if (file.size > MAX_UPLOAD_BYTES) {
+      toast('图片超过 8MB，请压缩后再上传', 'error');
+      fileInput.value = '';
+      return;
+    }
+    if (previewUrl) URL.revokeObjectURL(previewUrl);
+    previewUrl = URL.createObjectURL(file);
+    if (preview) {
+      preview.src = previewUrl;
+      preview.classList.remove('hidden');
+    }
+    dropHint?.classList.add('hidden');
+    if (uploadHint) uploadHint.textContent = `${(file.size / 1024 / 1024).toFixed(1)} MB`;
+  });
+
+  form?.addEventListener('submit', async (event) => {
+    event.preventDefault();
+    const file = fileInput?.files?.[0];
+    if (!file) {
+      toast('先选一张照片吧', 'error');
+      return;
+    }
+
+    const data = new FormData();
+    data.append('image', file);
+    data.append('caption', (document.querySelector<HTMLInputElement>('#photo-caption')?.value ?? '').trim());
+    data.append('nickname', (document.querySelector<HTMLInputElement>('#photo-nickname')?.value ?? '').trim());
+
+    if (submitButton) {
+      submitButton.disabled = true;
+      submitButton.textContent = '正在挂上墙…';
+    }
+
+    try {
+      const photo = await api<Photo>('/api/photos', { method: 'POST', body: data });
+      grid?.insertAdjacentHTML('afterbegin', photoCard(photo));
+      empty?.classList.add('hidden');
+      resetUploadForm();
+      toast('照片已经挂上墙啦 ✦');
+      grid?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    } catch (error) {
+      toast(errorMessage(error), 'error');
+    } finally {
+      if (submitButton) {
+        submitButton.disabled = false;
+        submitButton.textContent = '挂上墙';
+      }
+    }
+  });
+
+  loadMore?.addEventListener('click', () => void loadPhotos(false));
+
+  void loadPhotos(true);
+</script>

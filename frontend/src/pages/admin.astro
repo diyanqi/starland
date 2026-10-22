@@ -1,0 +1,223 @@
+---
+import Layout from '../layouts/Layout.astro';
+import Icon from '../components/Icon.astro';
+---
+
+<Layout title="管理台" description="拾光星岛管理台：删除违规照片与留言。">
+  <section class="pt-2 sm:pt-6">
+    <p class="section-kicker">Admin</p>
+    <h1 class="mt-3 font-serif text-3xl sm:text-4xl">岛屿管理台</h1>
+    <p class="mt-2 max-w-xl text-sm leading-6 text-ink-soft">
+      输入服务端配置的 <code class="rounded bg-paper-deep px-1.5 py-0.5 text-[12px]">ADMIN_TOKEN</code> 后即可删除违规内容。令牌只保存在当前标签页，关闭即失效。
+    </p>
+
+    <form id="token-form" class="card mt-6 flex flex-col gap-3 p-5 sm:flex-row sm:items-center sm:p-6">
+      <label for="admin-token" class="sr-only">管理令牌</label>
+      <input
+        id="admin-token"
+        type="password"
+        autocomplete="current-password"
+        class="field flex-1"
+        placeholder="请输入管理令牌"
+        required
+      />
+      <button type="submit" class="btn-primary">
+        <Icon name="lock" class="size-4" />
+        进入管理台
+      </button>
+    </form>
+    <p id="admin-status" class="mt-3 text-xs text-ink-soft" aria-live="polite"></p>
+
+    <div id="admin-dashboard" class="mt-8 hidden space-y-10">
+      <div class="flex flex-wrap items-center justify-between gap-3">
+        <h2 class="font-serif text-2xl">内容清单</h2>
+        <div class="flex gap-2">
+          <button id="refresh" type="button" class="btn-ghost px-4 py-2">刷新</button>
+          <button id="logout" type="button" class="btn-ghost px-4 py-2">退出</button>
+        </div>
+      </div>
+
+      <section>
+        <h3 class="text-sm font-medium text-ink">
+          照片 <span id="photo-count" class="ml-1 text-xs font-normal text-ink-soft"></span>
+        </h3>
+        <div id="admin-photos" class="mt-3 space-y-2"></div>
+      </section>
+
+      <section>
+        <h3 class="text-sm font-medium text-ink">
+          文字 <span id="message-count" class="ml-1 text-xs font-normal text-ink-soft"></span>
+        </h3>
+        <div id="admin-messages" class="mt-3 space-y-2"></div>
+        <p class="mt-3 text-xs text-ink-soft/80">删除留言会同时删除它下面的所有回应。</p>
+      </section>
+    </div>
+  </section>
+</Layout>
+
+<script>
+  import { adminApi, type Message, type PageResult, type Photo } from '../lib/client/api';
+  import { errorMessage, escapeHtml, formatTime, toast } from '../lib/client/ui';
+
+  const TOKEN_KEY = 'sgi:admin-token';
+  const TYPE_LABEL = { praise: '夸夸', rant: '吐槽', thought: '感悟' } as const;
+
+  const tokenForm = document.querySelector<HTMLFormElement>('#token-form');
+  const tokenInput = document.querySelector<HTMLInputElement>('#admin-token');
+  const status = document.querySelector<HTMLElement>('#admin-status');
+  const dashboard = document.querySelector<HTMLElement>('#admin-dashboard');
+  const photoContainer = document.querySelector<HTMLElement>('#admin-photos');
+  const messageContainer = document.querySelector<HTMLElement>('#admin-messages');
+  const photoCount = document.querySelector<HTMLElement>('#photo-count');
+  const messageCount = document.querySelector<HTMLElement>('#message-count');
+
+  let token = sessionStorage.getItem(TOKEN_KEY) ?? '';
+
+  function setStatus(message: string, kind: 'ok' | 'error' = 'ok') {
+    if (!status) return;
+    status.textContent = message;
+    status.dataset.kind = kind;
+    status.className =
+      kind === 'error' ? 'mt-3 text-xs text-[#9a544b]' : 'mt-3 text-xs text-sea-deep';
+  }
+
+  function photoRow(photo: Photo): string {
+    return `
+      <div class="flex items-start gap-3 rounded-2xl border border-line/80 bg-white/70 p-3" data-photo-row="${photo.id}">
+        <img src="${escapeHtml(photo.url)}" alt="" loading="lazy"
+             class="size-16 shrink-0 rounded-xl object-cover" />
+        <div class="min-w-0 flex-1">
+          <p class="truncate text-sm text-ink">${escapeHtml(photo.caption || '（无图注）')}</p>
+          <p class="mt-1 text-[11px] text-ink-soft">
+            ${escapeHtml(photo.nickname)} · ${photo.likes} 赞 · ${formatTime(photo.createdAt)}
+          </p>
+          <p class="mt-0.5 truncate text-[10px] text-ink-soft/60">${escapeHtml(photo.url)}</p>
+        </div>
+        <button type="button" class="shrink-0 rounded-full px-3 py-1.5 text-xs text-[#9a544b] transition hover:bg-blush/10"
+                data-delete-photo="${photo.id}">删除</button>
+      </div>`;
+  }
+
+  function messageRow(message: Message): string {
+    return `
+      <div class="flex items-start gap-3 rounded-2xl border border-line/80 bg-white/70 p-3" data-message-row="${message.id}">
+        <span class="chip chip-thought shrink-0">${TYPE_LABEL[message.type] ?? '感悟'}</span>
+        <div class="min-w-0 flex-1">
+          <p class="line-clamp-2 whitespace-pre-wrap text-sm leading-6 text-ink">${escapeHtml(message.content)}</p>
+          <p class="mt-1 text-[11px] text-ink-soft">
+            ${escapeHtml(message.nickname)} · ${formatTime(message.createdAt)} · ${message.replyCount} 条回应
+          </p>
+        </div>
+        <button type="button" class="shrink-0 rounded-full px-3 py-1.5 text-xs text-[#9a544b] transition hover:bg-blush/10"
+                data-delete-message="${message.id}">删除</button>
+      </div>`;
+  }
+
+  async function loadContent() {
+    if (!photoContainer || !messageContainer) return;
+    setStatus('正在读取岛上的内容…');
+    try {
+      const [photos, messages] = await Promise.all([
+        adminApi<PageResult<Photo>>('/api/photos?limit=60', token),
+        adminApi<PageResult<Message>>('/api/messages?limit=50', token),
+      ]);
+
+      photoContainer.innerHTML =
+        photos.items.length > 0
+          ? photos.items.map(photoRow).join('')
+          : '<p class="text-sm text-ink-soft">岛上还没有照片。</p>';
+      messageContainer.innerHTML =
+        messages.items.length > 0
+          ? messages.items.map(messageRow).join('')
+          : '<p class="text-sm text-ink-soft">岛上还没有文字。</p>';
+
+      if (photoCount) photoCount.textContent = `共 ${photos.items.length} 张`;
+      if (messageCount) messageCount.textContent = `共 ${messages.items.length} 条`;
+      setStatus('已连接，删除操作不可撤销，请谨慎使用。');
+    } catch (error) {
+      setStatus(errorMessage(error), 'error');
+      throw error;
+    }
+  }
+
+  async function enter(tokenValue: string) {
+    if (!tokenValue) return;
+    token = tokenValue;
+    if (tokenInput) tokenInput.value = tokenValue;
+    try {
+      await adminApi('/api/admin/ping', token);
+      sessionStorage.setItem(TOKEN_KEY, token);
+      dashboard?.classList.remove('hidden');
+      await loadContent();
+      toast('欢迎回来，管理员');
+    } catch (error) {
+      token = '';
+      sessionStorage.removeItem(TOKEN_KEY);
+      dashboard?.classList.add('hidden');
+      setStatus(errorMessage(error), 'error');
+    }
+  }
+
+  tokenForm?.addEventListener('submit', (event) => {
+    event.preventDefault();
+    void enter(tokenInput?.value.trim() ?? '');
+  });
+
+  photoContainer?.addEventListener('click', async (event) => {
+    const button = (event.target as HTMLElement).closest<HTMLButtonElement>('[data-delete-photo]');
+    if (!button) return;
+    const id = Number(button.dataset.deletePhoto);
+    if (!window.confirm('确定删除这张照片吗？此操作不可撤销。')) return;
+
+    button.disabled = true;
+    try {
+      await adminApi(`/api/admin/photos/${id}`, token, { method: 'DELETE' });
+      button.closest('[data-photo-row]')?.remove();
+      if (photoCount) {
+        const remaining = photoContainer.querySelectorAll('[data-photo-row]').length;
+        photoCount.textContent = `共 ${remaining} 张`;
+      }
+      toast('照片已删除');
+    } catch (error) {
+      button.disabled = false;
+      toast(errorMessage(error), 'error');
+    }
+  });
+
+  messageContainer?.addEventListener('click', async (event) => {
+    const button = (event.target as HTMLElement).closest<HTMLButtonElement>('[data-delete-message]');
+    if (!button) return;
+    const id = Number(button.dataset.deleteMessage);
+    if (!window.confirm('确定删除这条留言及其全部回应吗？')) return;
+
+    button.disabled = true;
+    try {
+      await adminApi(`/api/admin/messages/${id}`, token, { method: 'DELETE' });
+      button.closest('[data-message-row]')?.remove();
+      if (messageCount) {
+        const remaining = messageContainer.querySelectorAll('[data-message-row]').length;
+        messageCount.textContent = `共 ${remaining} 条`;
+      }
+      toast('留言已删除');
+    } catch (error) {
+      button.disabled = false;
+      toast(errorMessage(error), 'error');
+    }
+  });
+
+  document.querySelector('#refresh')?.addEventListener('click', () => {
+    void loadContent().catch(() => undefined);
+  });
+
+  document.querySelector('#logout')?.addEventListener('click', () => {
+    token = '';
+    sessionStorage.removeItem(TOKEN_KEY);
+    dashboard?.classList.add('hidden');
+    if (tokenInput) tokenInput.value = '';
+    setStatus('已退出管理台');
+  });
+
+  if (token) {
+    void enter(token);
+  }
+</script>

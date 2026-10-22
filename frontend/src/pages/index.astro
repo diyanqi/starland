@@ -1,0 +1,179 @@
+---
+import Layout from '../layouts/Layout.astro';
+import Icon from '../components/Icon.astro';
+
+const features = [
+  {
+    href: '/photos',
+    icon: 'camera' as const,
+    title: '照片墙',
+    desc: '聚会的笑、晚自习的窗外、食堂的新品，都值得被挂起来。',
+    cta: '去挂一张照片',
+    accent: 'bg-sea/10 text-sea-deep',
+  },
+  {
+    href: '/island',
+    icon: 'message' as const,
+    title: '文字岛',
+    desc: '夸夸身边的人，吐槽一点小事，或者只是记下今天的一点感悟。',
+    cta: '去写一句话',
+    accent: 'bg-star/15 text-[#8a6420]',
+  },
+];
+---
+
+<Layout>
+  <section class="relative overflow-hidden pb-10 pt-4 sm:pb-16 sm:pt-12">
+    <div class="pointer-events-none absolute -right-24 -top-10 hidden sm:block" aria-hidden="true">
+      <div class="size-72 rounded-[46%_54%_62%_38%] bg-gradient-to-br from-sea/25 via-star/20 to-transparent blur-2xl"></div>
+      <div class="absolute inset-10 rounded-full border border-star/30"></div>
+      <span class="absolute right-16 top-6 text-lg text-star/70">✦</span>
+      <span class="absolute bottom-10 left-4 text-sm text-sea/60">✦</span>
+    </div>
+
+    <div class="relative">
+      <p class="section-kicker">Class Memory · Est. 2026</p>
+      <h1 class="mt-4 font-serif text-[2.6rem] leading-[1.12] tracking-tight sm:text-6xl">
+        把散落的日常，<br class="sm:hidden" />收进一座小岛
+      </h1>
+      <p class="mt-5 max-w-xl text-[15px] leading-7 text-ink-soft">
+        「拾光星岛」是我们班的秘密基地。一张照片、一句心事，都会在这里被温柔收好，慢慢发光。
+      </p>
+      <div class="mt-7 flex flex-wrap gap-3">
+        <a href="/photos" class="btn-primary">
+          <Icon name="camera" class="size-4" />
+          去照片墙逛逛
+        </a>
+        <a href="/island" class="btn-ghost">
+          <Icon name="message" class="size-4" />
+          去文字岛坐坐
+        </a>
+      </div>
+      <div class="mt-8 flex flex-wrap items-center gap-x-5 gap-y-2 text-[11px] text-ink-soft/90">
+        <span class="inline-flex items-center gap-1.5"><span class="size-1.5 rounded-full bg-sea"></span>无需登录</span>
+        <span class="inline-flex items-center gap-1.5"><span class="size-1.5 rounded-full bg-star"></span>支持匿名</span>
+        <span class="inline-flex items-center gap-1.5"><span class="size-1.5 rounded-full bg-blush"></span>只属于我们班</span>
+      </div>
+    </div>
+  </section>
+
+  <section class="grid gap-4 sm:grid-cols-2" aria-label="功能入口">
+    {
+      features.map((item) => (
+        <a
+          href={item.href}
+          class="card group flex flex-col gap-3 p-6 transition hover:-translate-y-0.5 hover:border-sea/40"
+        >
+          <span class:list={['grid size-11 place-items-center rounded-2xl', item.accent]}>
+            <Icon name={item.icon} class="size-5" />
+          </span>
+          <h2 class="font-serif text-xl">{item.title}</h2>
+          <p class="text-sm leading-6 text-ink-soft">{item.desc}</p>
+          <span class="mt-1 inline-flex items-center gap-1 text-xs text-sea-deep">
+            {item.cta}
+            <span class="transition group-hover:translate-x-1">→</span>
+          </span>
+        </a>
+      ))
+    }
+  </section>
+
+  <section class="mt-12 sm:mt-16">
+    <div class="flex items-end justify-between gap-4">
+      <div>
+        <p class="section-kicker">Recently</p>
+        <h2 class="mt-2 font-serif text-2xl">最近的星光</h2>
+      </div>
+      <a href="/photos" class="shrink-0 text-xs text-sea-deep hover:underline">全部照片 →</a>
+    </div>
+    <div id="recent-photos" class="mt-5 grid grid-cols-3 gap-2 sm:gap-3" aria-live="polite">
+      <p class="col-span-3 py-8 text-center text-sm text-ink-soft">正在收集星光…</p>
+    </div>
+  </section>
+
+  <section class="mt-12 sm:mt-16">
+    <div class="flex items-end justify-between gap-4">
+      <div>
+        <p class="section-kicker">Whispers</p>
+        <h2 class="mt-2 font-serif text-2xl">岛上的声音</h2>
+      </div>
+      <a href="/island" class="shrink-0 text-xs text-sea-deep hover:underline">去文字岛 →</a>
+    </div>
+    <div id="recent-messages" class="mt-5 grid gap-3 md:grid-cols-2" aria-live="polite">
+      <p class="py-8 text-center text-sm text-ink-soft md:col-span-2">正在听海风…</p>
+    </div>
+  </section>
+</Layout>
+
+<script>
+  import { api, type Message, type PageResult, type Photo } from '../lib/client/api';
+  import { escapeHtml, formatTime } from '../lib/client/ui';
+
+  const TYPE_LABEL = { praise: '夸夸', rant: '吐槽', thought: '感悟' } as const;
+  const TYPE_CHIP = {
+    praise: 'chip-praise',
+    rant: 'chip-rant',
+    thought: 'chip-thought',
+  } as const;
+
+  const photoContainer = document.querySelector<HTMLElement>('#recent-photos');
+  const messageContainer = document.querySelector<HTMLElement>('#recent-messages');
+
+  async function loadRecentPhotos() {
+    if (!photoContainer) return;
+    try {
+      const result = await api<PageResult<Photo>>('/api/photos?limit=6');
+      if (result.items.length === 0) {
+        photoContainer.innerHTML =
+          '<p class="col-span-3 py-8 text-center text-sm text-ink-soft">还没有照片，等你放下第一束光 ✦</p>';
+        return;
+      }
+      photoContainer.innerHTML = result.items
+        .map(
+          (photo) => `
+            <a href="/photos" class="group relative block overflow-hidden rounded-2xl bg-paper-deep">
+              <img src="${escapeHtml(photo.url)}" alt="${escapeHtml(photo.caption || '同学分享的照片')}"
+                   loading="lazy" class="aspect-square w-full object-cover transition duration-500 group-hover:scale-[1.04]" />
+              <span class="absolute inset-x-0 bottom-0 bg-gradient-to-t from-ink/70 to-transparent p-2.5 text-[11px] leading-snug text-white/90 line-clamp-1">
+                ${escapeHtml(photo.caption || photo.nickname)}
+              </span>
+            </a>`,
+        )
+        .join('');
+    } catch {
+      photoContainer.innerHTML =
+        '<p class="col-span-3 py-8 text-center text-sm text-ink-soft">星光暂时被云遮住了，稍后再来看看。</p>';
+    }
+  }
+
+  async function loadRecentMessages() {
+    if (!messageContainer) return;
+    try {
+      const result = await api<PageResult<Message>>('/api/messages?limit=3');
+      if (result.items.length === 0) {
+        messageContainer.innerHTML =
+          '<p class="py-8 text-center text-sm text-ink-soft md:col-span-2">这片海域还很安静，去写下第一句吧。</p>';
+        return;
+      }
+      messageContainer.innerHTML = result.items
+        .map(
+          (message) => `
+            <a href="/island" class="card block p-4 transition hover:border-sea/40">
+              <div class="flex items-center justify-between gap-3">
+                <span class="chip ${TYPE_CHIP[message.type] ?? 'chip-thought'}">${TYPE_LABEL[message.type] ?? '感悟'}</span>
+                <time class="text-[11px] text-ink-soft/80">${formatTime(message.createdAt)}</time>
+              </div>
+              <p class="mt-2.5 text-sm leading-6 text-ink/90 line-clamp-2">${escapeHtml(message.content)}</p>
+              <p class="mt-2 text-[11px] text-ink-soft">— ${escapeHtml(message.nickname)} · ${message.replyCount} 条回应</p>
+            </a>`,
+        )
+        .join('');
+    } catch {
+      messageContainer.innerHTML =
+        '<p class="py-8 text-center text-sm text-ink-soft md:col-span-2">海风有点大，稍后再听听看。</p>';
+    }
+  }
+
+  void loadRecentPhotos();
+  void loadRecentMessages();
+</script>

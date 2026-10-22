@@ -1,0 +1,351 @@
+---
+import Layout from '../layouts/Layout.astro';
+import Icon from '../components/Icon.astro';
+
+const filters = [
+  { value: '', label: '全部' },
+  { value: 'praise', label: '夸夸' },
+  { value: 'rant', label: '吐槽' },
+  { value: 'thought', label: '感悟' },
+];
+---
+
+<Layout title="文字岛" description="拾光星岛的文字岛：夸夸、吐槽、感悟，都可以匿名放下，也可以收到温柔的回应。">
+  <section class="pt-2 sm:pt-6">
+    <p class="section-kicker">Text Island</p>
+    <h1 class="mt-3 font-serif text-3xl sm:text-4xl">把心事，放到岛上</h1>
+    <p class="mt-2 max-w-lg text-sm leading-6 text-ink-soft">
+      这里可以是树洞，也可以是夸夸墙。写下想说的话，会有同学把温柔回给你。
+    </p>
+
+    <form id="compose" class="card mt-6 p-5 sm:p-6">
+      <div class="flex flex-wrap items-center gap-2" role="group" aria-label="选择文字类型">
+        <button type="button" class="filter-chip" data-type="praise" aria-pressed="true">夸夸</button>
+        <button type="button" class="filter-chip" data-type="rant" aria-pressed="false">吐槽</button>
+        <button type="button" class="filter-chip" data-type="thought" aria-pressed="false">感悟</button>
+      </div>
+
+      <label for="message-content" class="sr-only">文字内容</label>
+      <textarea
+        id="message-content"
+        maxlength="2000"
+        rows="4"
+        required
+        class="field mt-4 resize-none leading-7"
+        placeholder="想说的话，可以轻轻放下…"
+      ></textarea>
+      <div class="mt-2 flex justify-end text-[11px] text-ink-soft/70">
+        <span id="char-count">0</span>&nbsp;/ 2000
+      </div>
+
+      <div class="mt-3 flex flex-col gap-3 sm:flex-row sm:items-center">
+        <label for="message-nickname" class="sr-only">昵称</label>
+        <input
+          id="message-nickname"
+          maxlength="24"
+          class="field sm:max-w-[12rem]"
+          placeholder="昵称（可匿名）"
+        />
+        <button type="submit" class="btn-primary sm:ml-auto">
+          <Icon name="send" class="size-4" />
+          放上文字岛
+        </button>
+      </div>
+    </form>
+
+    <div class="mt-8 flex flex-wrap gap-2" role="group" aria-label="筛选留言类型">
+      {
+        filters.map((filter) => (
+          <button
+            type="button"
+            class="filter-chip"
+            data-filter={filter.value}
+            aria-pressed={filter.value === '' ? 'true' : 'false'}
+          >
+            {filter.label}
+          </button>
+        ))
+      }
+    </div>
+
+    <div id="message-list" class="mt-4 space-y-4" aria-live="polite"></div>
+    <div id="message-empty" class="empty-state mt-4 hidden">这片海域还很安静，写下第一句吧。</div>
+
+    <div class="mt-8 text-center">
+      <button id="load-more" type="button" class="btn-ghost hidden">看更早的浮岛</button>
+    </div>
+  </section>
+</Layout>
+
+<script>
+  import { api, type Message, type MessageType, type PageResult, type Reply } from '../lib/client/api';
+  import { errorMessage, escapeHtml, formatTime, toast } from '../lib/client/ui';
+
+  const TYPE_META = {
+    praise: { label: '夸夸', chip: 'chip-praise' },
+    rant: { label: '吐槽', chip: 'chip-rant' },
+    thought: { label: '感悟', chip: 'chip-thought' },
+  } as const;
+
+  const list = document.querySelector<HTMLElement>('#message-list');
+  const empty = document.querySelector<HTMLElement>('#message-empty');
+  const loadMore = document.querySelector<HTMLButtonElement>('#load-more');
+  const compose = document.querySelector<HTMLFormElement>('#compose');
+  const contentInput = document.querySelector<HTMLTextAreaElement>('#message-content');
+  const nicknameInput = document.querySelector<HTMLInputElement>('#message-nickname');
+  const charCount = document.querySelector<HTMLElement>('#char-count');
+  const typeButtons = Array.from(
+    document.querySelectorAll<HTMLButtonElement>('[data-type]'),
+  );
+  const filterButtons = Array.from(
+    document.querySelectorAll<HTMLButtonElement>('[data-filter]'),
+  );
+
+  let selectedType: MessageType = 'praise';
+  let activeFilter = '';
+  let cursor = 0;
+  let loading = false;
+  let exhausted = false;
+
+  function messageCard(message: Message): string {
+    const meta = TYPE_META[message.type] ?? TYPE_META.thought;
+    return `
+      <article class="card p-5 sm:p-6" data-message="${message.id}">
+        <div class="flex items-center justify-between gap-3">
+          <span class="chip ${meta.chip}">${meta.label}</span>
+          <time datetime="${escapeHtml(message.createdAt)}" class="text-[11px] text-ink-soft/80">
+            ${formatTime(message.createdAt)}
+          </time>
+        </div>
+        <p class="mt-3 whitespace-pre-wrap text-[15px] leading-7 text-ink/90">${escapeHtml(message.content)}</p>
+        <div class="mt-4 flex items-center justify-between gap-3 border-t border-line/50 pt-3 text-xs text-ink-soft">
+          <span class="min-w-0 truncate">— ${escapeHtml(message.nickname)}</span>
+          <button type="button"
+                  class="shrink-0 rounded-full px-3 py-1 transition hover:bg-sea/10 hover:text-sea-deep"
+                  data-toggle-replies="${message.id}" aria-expanded="false"
+                  aria-controls="replies-${message.id}">
+            回应 <span data-reply-count>${message.replyCount}</span>
+          </button>
+        </div>
+        <div id="replies-${message.id}" class="mt-4 hidden" data-replies>
+          <div class="space-y-2.5" data-reply-items></div>
+          <form class="mt-3 flex flex-wrap gap-2" data-reply-form="${message.id}">
+            <input name="reply" maxlength="1000" class="field min-w-0 flex-1" placeholder="写一句温柔的话…" />
+            <input name="nickname" maxlength="24" class="field w-28 sm:w-32" placeholder="昵称（可匿名）" />
+            <button type="submit" class="btn-primary px-4 py-2 text-xs">送出</button>
+          </form>
+        </div>
+      </article>`;
+  }
+
+  function replyItem(reply: Reply): string {
+    return `
+      <div class="rounded-2xl bg-paper-deep/50 px-3.5 py-2.5">
+        <p class="whitespace-pre-wrap text-[13px] leading-6 text-ink/90">${escapeHtml(reply.content)}</p>
+        <p class="mt-1 text-[11px] text-ink-soft">
+          — ${escapeHtml(reply.nickname)} · ${formatTime(reply.createdAt)}
+        </p>
+      </div>`;
+  }
+
+  async function loadMessages(reset = false) {
+    if (!list || loading || (!reset && exhausted)) return;
+    loading = true;
+    if (loadMore) {
+      loadMore.disabled = true;
+      loadMore.textContent = '正在听海风…';
+    }
+
+    try {
+      const query = new URLSearchParams({ limit: '20' });
+      if (activeFilter) query.set('type', activeFilter);
+      if (!reset && cursor > 0) query.set('cursor', String(cursor));
+
+      const result = await api<PageResult<Message>>(`/api/messages?${query.toString()}`);
+      if (reset) list.innerHTML = '';
+      list.insertAdjacentHTML('beforeend', result.items.map(messageCard).join(''));
+
+      cursor = result.nextCursor;
+      exhausted = result.nextCursor === 0;
+      loadMore?.classList.toggle('hidden', exhausted);
+      empty?.classList.toggle('hidden', list.children.length > 0);
+    } catch (error) {
+      toast(errorMessage(error), 'error');
+    } finally {
+      loading = false;
+      if (loadMore) {
+        loadMore.disabled = false;
+        loadMore.textContent = '看更早的浮岛';
+      }
+    }
+  }
+
+  function setFilter(value: string) {
+    activeFilter = value;
+    for (const button of filterButtons) {
+      button.setAttribute('aria-pressed', String(button.dataset.filter === value));
+    }
+    cursor = 0;
+    exhausted = false;
+    void loadMessages(true);
+  }
+
+  for (const button of filterButtons) {
+    button.addEventListener('click', () => {
+      if (button.dataset.filter === activeFilter) return;
+      setFilter(button.dataset.filter ?? '');
+    });
+  }
+
+  for (const button of typeButtons) {
+    button.addEventListener('click', () => {
+      selectedType = (button.dataset.type as MessageType) ?? 'praise';
+      for (const item of typeButtons) {
+        item.setAttribute('aria-pressed', String(item === button));
+      }
+    });
+  }
+
+  contentInput?.addEventListener('input', () => {
+    if (charCount) charCount.textContent = String(contentInput.value.length);
+  });
+
+  compose?.addEventListener('submit', async (event) => {
+    event.preventDefault();
+    const content = contentInput?.value.trim() ?? '';
+    if (!content) {
+      toast('还没写下内容呢', 'error');
+      contentInput?.focus();
+      return;
+    }
+
+    const submit = compose.querySelector<HTMLButtonElement>('button[type="submit"]');
+    if (submit) {
+      submit.disabled = true;
+      submit.textContent = '正在放上岛…';
+    }
+
+    try {
+      const postedType = selectedType;
+      await api<Message>('/api/messages', {
+        method: 'POST',
+        body: JSON.stringify({
+          content,
+          type: postedType,
+          nickname: nicknameInput?.value.trim() ?? '',
+        }),
+      });
+
+      compose.reset();
+      selectedType = 'praise';
+      for (const button of typeButtons) {
+        button.setAttribute('aria-pressed', String(button.dataset.type === 'praise'));
+      }
+      if (charCount) charCount.textContent = '0';
+      setFilter(postedType);
+      toast('已经放上文字岛啦 ✦');
+    } catch (error) {
+      toast(errorMessage(error), 'error');
+    } finally {
+      if (submit) {
+        submit.disabled = false;
+        submit.innerHTML =
+          '<svg class="size-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><path d="M21 3 10.5 13.5M21 3l-6.5 18-4-7.5L3 9.5z"/></svg>放上文字岛';
+      }
+    }
+  });
+
+  async function loadReplies(card: HTMLElement) {
+    const id = Number(card.dataset.message);
+    const items = card.querySelector<HTMLElement>('[data-reply-items]');
+    const panel = card.querySelector<HTMLElement>('[data-replies]');
+    if (!items || !panel || !Number.isFinite(id)) return;
+
+    items.innerHTML = '<p class="text-xs text-ink-soft">正在听回音…</p>';
+    try {
+      const result = await api<{ items: Reply[] }>(`/api/messages/${id}/replies`);
+      items.innerHTML =
+        result.items.length > 0
+          ? result.items.map(replyItem).join('')
+          : '<p class="text-xs text-ink-soft" data-empty-replies>还没有回应，等你留下第一句。</p>';
+      panel.dataset.loaded = '1';
+    } catch (error) {
+      items.innerHTML = '';
+      toast(errorMessage(error), 'error');
+    }
+  }
+
+  list?.addEventListener('click', (event) => {
+    const button = (event.target as HTMLElement).closest<HTMLButtonElement>('[data-toggle-replies]');
+    if (!button) return;
+
+    const card = button.closest<HTMLElement>('[data-message]');
+    const panel = card?.querySelector<HTMLElement>('[data-replies]');
+    if (!card || !panel) return;
+
+    const willOpen = panel.classList.contains('hidden');
+    panel.classList.toggle('hidden');
+    button.setAttribute('aria-expanded', String(willOpen));
+    if (willOpen && panel.dataset.loaded !== '1') {
+      void loadReplies(card);
+    }
+  });
+
+  list?.addEventListener('submit', async (event) => {
+    const form = event.target as HTMLFormElement;
+    if (!form.matches('[data-reply-form]')) return;
+    event.preventDefault();
+
+    const card = form.closest<HTMLElement>('[data-message]');
+    const contentField = form.querySelector<HTMLInputElement>('[name="reply"]');
+    const nicknameField = form.querySelector<HTMLInputElement>('[name="nickname"]');
+    if (!card || !contentField) return;
+
+    const content = contentField.value.trim();
+    if (!content) {
+      toast('写点什么再送出吧', 'error');
+      contentField.focus();
+      return;
+    }
+
+    const submit = form.querySelector<HTMLButtonElement>('button[type="submit"]');
+    if (submit) {
+      submit.disabled = true;
+      submit.textContent = '送出中…';
+    }
+
+    try {
+      const reply = await api<Reply>(`/api/messages/${card.dataset.message}/replies`, {
+        method: 'POST',
+        body: JSON.stringify({
+          content,
+          nickname: nicknameField?.value.trim() ?? '',
+        }),
+      });
+
+      const items = card.querySelector<HTMLElement>('[data-reply-items]');
+      items?.querySelector('[data-empty-replies]')?.remove();
+      items?.insertAdjacentHTML('beforeend', replyItem(reply));
+
+      const counter = card.querySelector<HTMLElement>('[data-reply-count]');
+      if (counter) {
+        const next = Number(counter.textContent ?? '0') + 1;
+        counter.textContent = String(next);
+      }
+
+      form.reset();
+      toast('回应已经送到啦');
+    } catch (error) {
+      toast(errorMessage(error), 'error');
+    } finally {
+      if (submit) {
+        submit.disabled = false;
+        submit.textContent = '送出';
+      }
+    }
+  });
+
+  loadMore?.addEventListener('click', () => void loadMessages(false));
+
+  void loadMessages(true);
+</script>

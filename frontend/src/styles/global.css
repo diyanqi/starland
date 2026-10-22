@@ -1,0 +1,154 @@
+@import "tailwindcss";
+
+@theme {
+  --color-paper: #fbf7ef;
+  --color-paper-deep: #f2ebdd;
+  --color-ink: #2c3742;
+  --color-ink-soft: #6d7883;
+  --color-line: #e5dccb;
+  --color-sea: #6d9e96;
+  --color-sea-deep: #4d7d75;
+  --color-star: #dfae5c;
+  --color-blush: #dfa39a;
+
+  --font-serif: "Songti SC", "Noto Serif SC", "Source Han Serif SC", "STSong", ui-serif, Georgia, serif;
+  --font-sans: ui-sans-serif, -apple-system, BlinkMacSystemFont, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+
+  --shadow-soft: 0 18px 50px -30px rgba(44, 55, 66, 0.4);
+}
+
+@layer base {
+  html {
+    scroll-behavior: smooth;
+  }
+
+  body {
+    background-color: var(--color-paper);
+    background-image:
+      radial-gradient(52rem 36rem at 8% -8%, rgba(223, 174, 92, 0.16), transparent 62%),
+      radial-gradient(46rem 32rem at 104% 2%, rgba(109, 158, 150, 0.18), transparent 60%),
+      radial-gradient(40rem 28rem at 50% 108%, rgba(223, 163, 154, 0.12), transparent 65%);
+    background-attachment: fixed;
+  }
+
+  ::selection {
+    background: rgba(223, 174, 92, 0.28);
+  }
+}
+
+@layer components {
+  .card {
+    @apply rounded-3xl border border-line/80 bg-white/70 shadow-soft backdrop-blur-sm;
+  }
+
+  .btn-primary {
+    @apply inline-flex items-center justify-center gap-2 rounded-full bg-ink px-5 py-2.5 text-sm font-medium text-paper transition hover:bg-sea-deep active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-50;
+  }
+
+  .btn-ghost {
+    @apply inline-flex items-center justify-center gap-2 rounded-full border border-line bg-white/60 px-5 py-2.5 text-sm font-medium text-ink transition hover:border-sea/60 hover:text-sea-deep active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-50;
+  }
+
+  .field {
+    @apply w-full rounded-xl border border-line bg-white/75 px-3.5 py-2.5 text-sm text-ink outline-none transition placeholder:text-ink-soft/60 focus:border-sea/70 focus:ring-2 focus:ring-sea/15;
+  }
+
+  .section-kicker {
+    @apply text-[11px] font-medium uppercase tracking-[0.28em] text-sea-deep/80;
+  }
+
+  .chip {
+    @apply inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-[11px] font-medium tracking-wide;
+  }
+
+  .chip-praise {
+    @apply bg-star/15 text-[#8a6420];
+  }
+
+  .chip-rant {
+    @apply bg-blush/20 text-[#9a544b];
+  }
+
+  .chip-thought {
+    @apply bg-sea/15 text-sea-deep;
+  }
+
+  .empty-state {
+    @apply rounded-3xl border border-dashed border-line bg-white/40 px-6 py-12 text-center text-sm text-ink-soft;
+  }
+
+  .filter-chip {
+    @apply rounded-full border border-line bg-white/60 px-4 py-1.5 text-sm text-ink-soft transition hover:border-sea/50 hover:text-ink;
+  }
+
+  .filter-chip[aria-pressed="true"] {
+    @apply border-ink bg-ink text-paper;
+  }
+}
+
+.photo-card img {
+  background: var(--color-paper-deep);
+  min-height: 4rem;
+}
+
+.like-btn {
+  @apply inline-flex items-center gap-1 rounded-full px-2 py-1 text-xs transition hover:bg-blush/10 hover:text-blush;
+}
+
+.like-btn.liked {
+  color: var(--color-blush);
+}
+
+.like-btn.liked svg {
+  fill: currentColor;
+}
+
+.toast {
+  position: fixed;
+  left: 50%;
+  bottom: calc(5.5rem + env(safe-area-inset-bottom));
+  z-index: 80;
+  transform: translate(-50%, 1rem);
+  max-width: min(90vw, 24rem);
+  border-radius: 9999px;
+  padding: 0.65rem 1.15rem;
+  font-size: 0.8125rem;
+  line-height: 1.35;
+  text-align: center;
+  color: var(--color-paper);
+  background: rgba(44, 55, 66, 0.94);
+  box-shadow: 0 16px 40px -20px rgba(44, 55, 66, 0.8);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.25s ease, transform 0.25s ease;
+}
+
+.toast[data-visible="true"] {
+  opacity: 1;
+  transform: translate(-50%, 0);
+}
+
+.toast[data-kind="error"] {
+  background: rgba(154, 84, 75, 0.96);
+}
+
+@media (min-width: 768px) {
+  .toast {
+    bottom: 2rem;
+  }
+}
+
+@keyframes float-soft {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-8px); }
+}
+
+.float-soft {
+  animation: float-soft 7s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .float-soft {
+    animation: none;
+  }
+}

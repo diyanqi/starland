@@ -1,0 +1,37 @@
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: island
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-island_dev_pw}
+      POSTGRES_DB: shiguang
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U island -d shiguang"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+  app:
+    build: .
+    environment:
+      PORT: "8080"
+      DATABASE_URL: postgres://island:${POSTGRES_PASSWORD:-island_dev_pw}@db:5432/shiguang?sslmode=disable
+      UPLOAD_DIR: /app/uploads
+      ADMIN_TOKEN: ${ADMIN_TOKEN:-please-change-me}
+      MAX_UPLOAD_MB: "8"
+      TRUST_PROXY: "false"
+    ports:
+      - "8080:8080"
+    volumes:
+      - uploads:/app/uploads
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  pgdata:
+  uploads:
