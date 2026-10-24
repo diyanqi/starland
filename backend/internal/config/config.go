@@ -16,6 +16,7 @@ type Config struct {
 	UploadDir      string
 	AdminToken     string
 	MaxUploadBytes int64
+	MaxVideoBytes  int64
 	TrustProxy     bool
 }
 
@@ -29,6 +30,7 @@ func Load() (Config, error) {
 		UploadDir:      env("UPLOAD_DIR", "./uploads"),
 		AdminToken:     strings.TrimSpace(os.Getenv("ADMIN_TOKEN")),
 		MaxUploadBytes: 8 << 20,
+		MaxVideoBytes:  50 << 20,
 		TrustProxy:     envBool("TRUST_PROXY", false),
 	}
 
@@ -45,6 +47,14 @@ func Load() (Config, error) {
 			return cfg, fmt.Errorf("MAX_UPLOAD_MB 必须是 1-50 之间的整数")
 		}
 		cfg.MaxUploadBytes = int64(mb) << 20
+	}
+
+	if v := strings.TrimSpace(os.Getenv("MAX_VIDEO_MB")); v != "" {
+		mb, err := strconv.Atoi(v)
+		if err != nil || mb <= 0 || mb > 200 {
+			return cfg, fmt.Errorf("MAX_VIDEO_MB 必须是 1-200 之间的整数")
+		}
+		cfg.MaxVideoBytes = int64(mb) << 20
 	}
 
 	if cfg.DatabaseURL == "" {

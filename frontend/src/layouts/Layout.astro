@@ -9,8 +9,11 @@ interface Props {
 
 const {
   title = '拾光星岛',
-  description = '一座属于我们班的小岛：把照片和心事放上来，让光慢慢长大。',
+  description = '自动化与光电 2609 班的班级小岛：把照片和心事放上来，让光慢慢长大。',
 } = Astro.props;
+
+const SITE_NAME = '拾光星岛';
+const CLASS_NAME = '自动化与光电 2609 班';
 
 const path = Astro.url.pathname;
 const navItems = [
@@ -19,7 +22,7 @@ const navItems = [
   { href: '/island', label: '文字岛', icon: 'message' as const },
 ];
 const isActive = (href: string) => (href === '/' ? path === '/' : path.startsWith(href));
-const pageTitle = title === '拾光星岛' ? title : `${title} · 拾光星岛`;
+const pageTitle = title === SITE_NAME ? `${SITE_NAME} · ${CLASS_NAME}` : `${title} · ${SITE_NAME}`;
 ---
 
 <!doctype html>
@@ -32,6 +35,7 @@ const pageTitle = title === '拾光星岛' ? title : `${title} · 拾光星岛`;
     <meta property="og:title" content={pageTitle} />
     <meta property="og:description" content={description} />
     <meta property="og:type" content="website" />
+    <meta property="og:site_name" content={`${SITE_NAME} · ${CLASS_NAME}`} />
     <meta name="robots" content="index, follow" />
     <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
     <title>{pageTitle}</title>
@@ -48,7 +52,7 @@ const pageTitle = title === '拾光星岛' ? title : `${title} · 拾光星岛`;
             </span>
             <span class="flex flex-col leading-none">
               <span class="font-serif text-lg tracking-wide">拾光星岛</span>
-              <span class="mt-1 text-[10px] tracking-[0.24em] text-ink-soft/80">SHIGUANG ISLAND</span>
+              <span class="mt-1 text-[10px] tracking-[0.18em] text-ink-soft/80">自动化与光电 2609 班</span>
             </span>
           </a>
 
@@ -81,6 +85,7 @@ const pageTitle = title === '拾光星岛' ? title : `${title} · 拾光星岛`;
 
       <footer class="border-t border-line/60 px-4 pb-24 pt-8 text-center text-xs text-ink-soft md:pb-8">
         <p class="font-serif text-sm text-ink/80">愿你在这里，拾到一束光 ✦</p>
+        <p class="mt-2 text-[11px] tracking-wide text-ink-soft/80">自动化与光电 2609 班 · 拾光星岛</p>
         <p class="mt-2">
           <a href="/admin" class="inline-flex items-center gap-1 transition hover:text-ink">
             <Icon name="lock" class="size-3.5" />

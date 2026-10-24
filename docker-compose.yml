@@ -1,6 +1,6 @@
 services:
   db:
-    image: postgres:16-alpine
+    image: postgres:18-alpine
     environment:
       POSTGRES_USER: island
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-island_dev_pw}
@@ -21,7 +21,8 @@ services:
       DATABASE_URL: postgres://island:${POSTGRES_PASSWORD:-island_dev_pw}@db:5432/shiguang?sslmode=disable
       UPLOAD_DIR: /app/uploads
       ADMIN_TOKEN: ${ADMIN_TOKEN:-please-change-me}
-      MAX_UPLOAD_MB: "8"
+      MAX_UPLOAD_MB: ${MAX_UPLOAD_MB:-8}
+      MAX_VIDEO_MB: ${MAX_VIDEO_MB:-50}
       TRUST_PROXY: "false"
     ports:
       - "8080:8080"

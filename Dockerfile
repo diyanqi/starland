@@ -1,5 +1,6 @@
 # ---------- 1. 构建 Astro 前端 ----------
-FROM node:22-alpine AS web
+# 使用当前 Active LTS 的 Node 24；Astro 7 要求 Node >= 22.23.4
+FROM node:24-alpine AS web
 
 WORKDIR /app/frontend
 COPY frontend/package.json frontend/package-lock.json ./
@@ -8,7 +9,7 @@ COPY frontend/ ./
 RUN npm run build
 
 # ---------- 2. 编译 Go 并嵌入前端 ----------
-FROM golang:1.24-alpine AS build
+FROM golang:1.27-alpine AS build
 
 WORKDIR /src
 COPY backend/go.mod backend/go.sum ./
@@ -20,7 +21,7 @@ COPY --from=web /app/frontend/dist ./web/dist
 RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/island .
 
 # ---------- 3. 运行镜像 ----------
-FROM alpine:3.21
+FROM alpine:3.23
 
 RUN apk add --no-cache ca-certificates tzdata \
     && adduser -D -u 10001 island

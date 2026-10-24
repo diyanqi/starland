@@ -1,6 +1,6 @@
 SHELL := /bin/sh
 
-.PHONY: help install dev-web dev-api build run docker clean
+.PHONY: help install dev-web dev-api build run docker audit token clean
 
 help:
 	@echo "拾光星岛 · 常用命令"
@@ -10,6 +10,8 @@ help:
 	@echo "  make build     构建前端 + 嵌入并编译单文件二进制到 bin/"
 	@echo "  make run       构建并运行 (读取 backend/.env)"
 	@echo "  make docker    构建并启动 docker compose 全套"
+	@echo "  make audit     检查前端与 Go 依赖漏洞"
+	@echo "  make token     生成一个随机 ADMIN_TOKEN"
 	@echo "  make clean     清理构建产物"
 
 install:
@@ -34,6 +36,13 @@ run: build
 
 docker:
 	docker compose up -d --build
+
+audit:
+	cd frontend && npm audit --audit-level=high
+	cd backend && go run golang.org/x/vuln/cmd/govulncheck@latest ./...
+
+token:
+	@openssl rand -hex 24
 
 clean:
 	rm -rf bin frontend/dist backend/web/dist

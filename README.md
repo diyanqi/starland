@@ -1,14 +1,14 @@
 # 拾光星岛 · Shiguang Island
 
-一个班级专属的轻互动网站：**照片墙**收藏日常瞬间，**文字岛**收留夸夸、吐槽和感悟。移动端优先，浏览器直接访问，不需要注册登录。
+一个 **自动化与光电 2609 班**的专属轻互动网站：**照片墙**收藏日常瞬间，**文字岛**收留夸夸、吐槽和感悟。移动端优先，浏览器直接访问，不需要注册登录。
 
 技术栈：
 
 | 层 | 选型 |
 | --- | --- |
-| 前端 | Astro 5（纯静态输出）+ Tailwind CSS 4 + 原生 TypeScript |
-| 后端 | Go 1.24 标准库 `net/http` + chi 路由 |
-| 数据库 | PostgreSQL 13+（pgx v5 连接池） |
+| 前端 | Astro 7（纯静态输出）+ Tailwind CSS 4 + 原生 TypeScript |
+| 后端 | Go 1.27 标准库 `net/http` + chi 路由 |
+| 数据库 | PostgreSQL 13–18（pgx v5 连接池，compose 使用 18） |
 | 部署 | Astro `dist` 通过 `embed` 编进 Go 二进制，同源单文件部署 |
 
 ---
@@ -37,15 +37,17 @@ shiguang-island/
 │   ├── web/dist/                  # 前端构建产物（由 make build 复制进来）
 │   ├── migrations/
 │   │   ├── embed.go               # 启动时自动执行迁移（带 advisory lock）
-│   │   └── 001_init.sql           # 建表语句
+│   │   ├── 001_init.sql           # 建表语句
+│   │   └── 002_media_kind.sql     # 照片增加 image / video 类型
 │   ├── internal/
 │   │   ├── config/config.go       # 环境变量 + 极简 .env 读取
+│   │   ├── media/media.go         # 真实格式识别 + HEIC/AVIF/BMP/TIFF 转 JPEG
 │   │   ├── store/                 # pgxpool、SQL 查询、领域模型
 │   │   └── httpapi/               # 路由、中间件、上传、REST handlers
 │   ├── .env.example
 │   └── go.mod
 ├── Dockerfile                     # 三段式构建：Astro → Go → Alpine
-├── docker-compose.yml             # app + PostgreSQL 16
+├── docker-compose.yml             # app + PostgreSQL 18
 ├── Makefile
 └── README.md
 ```
@@ -72,8 +74,8 @@ shiguang-island/
 
 ### 3.1 依赖
 
-- Go >= 1.24
-- Node.js >= 20
+- Go >= 1.27.3
+- Node.js >= 22.23.4（Astro 7 要求；推荐使用当前 LTS Node 24）
 - PostgreSQL >= 13，或者 Docker
 
 ### 3.2 启动数据库
@@ -149,6 +151,7 @@ docker compose up -d --build
 | `UPLOAD_DIR` | `./uploads` | 图片落盘目录，需可写 |
 | `ADMIN_TOKEN` | 空 | 管理令牌；为空时管理接口返回 503；设置后至少 8 位 |
 | `MAX_UPLOAD_MB` | `8` | 单张图片大小上限，1–50 |
+| `MAX_VIDEO_MB` | `50` | 单个实况视频大小上限，1–200 |
 | `TRUST_PROXY` | `false` | 位于 Nginx/CDN 后时设为 `true`，才信任 `X-Forwarded-For` |
 
 ---
@@ -161,6 +164,7 @@ docker compose up -d --build
 CREATE TABLE photos (
     id         BIGSERIAL PRIMARY KEY,
     url        TEXT         NOT NULL,
+    kind       VARCHAR(8)   NOT NULL DEFAULT 'image' CHECK (kind IN ('image', 'video')),
     caption    VARCHAR(200) NOT NULL DEFAULT '',
     nickname   VARCHAR(24)  NOT NULL DEFAULT '匿名星友',
     likes      INTEGER      NOT NULL DEFAULT 0 CHECK (likes >= 0),
@@ -200,6 +204,7 @@ CREATE INDEX replies_message_idx ON replies (message_id, created_at ASC);
 设计要点：
 
 - `replies.message_id` 外键 `ON DELETE CASCADE`，管理端删留言时回复自动清理。
+- `photos.kind` 区分静态图片与实况视频，前端据此选择 `<img>` 或 `<video>` 渲染；旧数据默认为 `image`。
 - 列表按自增 `id` 做游标分页（`WHERE id < cursor`），比 OFFSET 稳定，插入新内容不会导致重复/漏项。
 - 点赞计数放在 `photos.likes` 上，`photo_likes` 只负责去重，避免每次列表都聚合统计。
 - 类型用 `CHECK` 约束兜底，即使绕过 API 也不会写入脏数据。
@@ -219,7 +224,7 @@ CREATE INDEX replies_message_idx ON replies (message_id, created_at ASC);
 | --- | --- | --- | --- |
 | GET | `/api/health` | 健康检查（含数据库 Ping） | 否 |
 | GET | `/api/photos?limit=24&cursor=<id>` | 照片列表，倒序、游标分页，含 `liked` | 否 |
-| POST | `/api/photos` | 上传照片（`multipart/form-data`：`image`、`caption`、`nickname`） | 否 |
+| POST | `/api/photos` | 上传照片/实况（`multipart/form-data`：`image`、`caption`、`nickname`） | 否 |
 | POST | `/api/photos/{id}/like` | 点赞（按 `X-Client-Id` 幂等） | 否 |
 | GET | `/api/messages?type=praise&limit=20&cursor=<id>` | 留言列表，可按类型筛选 | 否 |
 | POST | `/api/messages` | 发布留言 `{content,type,nickname}` | 否 |
@@ -272,15 +277,20 @@ r.NotFound(static.ServeHTTP)   // 其余全部交给内嵌静态文件
 
 > 如果以后改成真正的 SPA（如 React Router），“无扩展名回退 index.html”就是标准做法；当前 Astro 是多页面静态站，这个分支只是额外保险。
 
-### 7.2 图片上传
+### 7.2 图片与实况上传
 
-`internal/httpapi/uploads.go` 做了这些校验：
+`internal/httpapi/uploads.go` 负责接收，`internal/media/media.go` 负责识别与转码：
 
-- `http.MaxBytesReader` 限制请求体，`MAX_UPLOAD_MB` 限制单文件；
-- 读取前 512 字节用 `http.DetectContentType` **按真实内容**判断类型，只放行 JPG / PNG / GIF / WebP（拒绝 SVG，避免存储型 XSS）；
-- 文件名由服务端生成：`日期-随机十六进制.扩展名`，不信任用户文件名；
+- `http.MaxBytesReader` 限制请求体；图片受 `MAX_UPLOAD_MB` 限制，视频受 `MAX_VIDEO_MB` 限制；
+- 读取前 4KB 魔数**按真实内容**判断类型（不信任 `Content-Type` 与文件名）；
+- 支持静态图片 `JPG / PNG / GIF / WebP`，以及手机上常见的 `HEIC / HEIF / AVIF / BMP / TIFF`；
+- HEIC/HEIF 与 AVIF 由纯 Go（WASM，无 CGO）解码后统一转成 JPEG，长边超过 2560px 会等比缩小并自动应用 EXIF 方向；BMP/TIFF 同样转为 JPEG，保证所有浏览器都能显示；
+- 支持实况视频 `MP4 / MOV / WebM`，入库时 `kind = 'video'`，前端用 `<video autoplay muted loop playsinline>` 渲染；`/uploads/*` 由 `http.ServeContent` 提供，原生支持 Range 请求；
+- 拒绝 SVG，避免存储型 XSS；文件名由服务端生成：`日期-随机十六进制.扩展名`；
 - `O_EXCL` 创建文件，写入超限或数据库失败时删除临时文件；
 - 访问路径固定为 `/uploads/<name>`，仅接受白名单正则，禁止目录穿越与目录列表。
+
+> iPhone 的实况照片在网页文件选择器里通常只会提供静态 HEIC 图（配对 MOV 不会被浏览器暴露）。若想保留动态效果，可在相册里“导出为视频”后上传，优先导出 MP4（H.264）；HEVC/H.265 的 MOV 在部分安卓浏览器上可能无法解码。
 
 图片默认落本地磁盘。如果要用图床（对象存储）也很简单：
 
@@ -314,6 +324,7 @@ export async function api<T>(path: string, init: RequestInit = {}): Promise<T> {
 ```
 
 - 所有用户内容渲染前经过 `escapeHtml()`，避免 XSS；
+- 文件选择支持多选，前端按顺序逐个上传并显示 `上传中 2/5…`，单个失败不会中断其余文件；
 - 列表使用游标“加载更多”，按钮在无更多数据时隐藏；
 - 点赞、发布、回复都有 disabled / loading / toast 错误提示；
 - 上传失败、网络异常、后端校验错误都会显示服务端返回的中文 message。
@@ -330,6 +341,72 @@ export async function api<T>(path: string, init: RequestInit = {}): Promise<T> {
 
 ## 8. 部署与运维建议
 
+### 8.1 服务器更新到最新版本（Docker Compose）
+
+假设服务器上项目目录为 `/opt/starland`：
+
+```bash
+cd /opt/starland
+
+# 1. 先备份数据库（强烈建议，迁移自动执行且不可回滚）
+docker compose exec -T db pg_dump -U island -Fc shiguang > backup-$(date +%F).dump
+
+# 2. 拉取最新代码并重建镜像
+git pull --ff-only
+docker compose up -d --build
+
+# 3. 观察启动日志（确认迁移执行成功）
+docker compose logs -f --tail=80 app
+```
+
+说明：
+
+- 不要加 `-v`（`docker compose down -v` 会删除数据库与上传文件 volume）；
+- `docker compose up -d --build` 会滚动替换 app 容器，`pgdata` 与 `uploads` 两个 volume 原样保留；
+- 数据库迁移在容器启动时按文件名顺序自动执行（`schema_migrations` 记录进度），无需手动跑 SQL；
+- 如果使用裸机二进制部署：`git pull && make build`，然后 `systemctl restart shiguang-island`（或你使用的进程管理器），同样会自动迁移。
+
+### 8.2 配置管理密钥（ADMIN_TOKEN）
+
+管理密钥用于删除照片/留言，**不要使用示例值**，也不要提交到 Git：
+
+```bash
+# 生成一个 48 位十六进制密钥（或直接 make token）
+openssl rand -hex 24
+```
+
+Docker Compose 部署：把密钥写进项目根目录的 `.env`（与 `docker-compose.yml` 同级）：
+
+```dotenv
+POSTGRES_PASSWORD=换成随机密码
+ADMIN_TOKEN=上一步生成的密钥
+MAX_UPLOAD_MB=8
+MAX_VIDEO_MB=50
+```
+
+改完后让容器读取新环境变量：
+
+```bash
+docker compose up -d          # 会重建用到新变量的 app 容器
+```
+
+裸机部署：写入 `backend/.env`（或 systemd 的 `Environment=`），然后重启进程。
+
+验证密钥是否生效：
+
+```bash
+TOKEN='你设置的密钥'
+curl -fsS -H "X-Admin-Token: $TOKEN" https://你的域名/api/admin/ping
+# 成功返回 {"data":{"ok":true}}
+
+# 错误密钥应返回 401
+curl -s -o /dev/null -w '%{http_code}\n' -H 'X-Admin-Token: wrong' https://你的域名/api/admin/ping
+```
+
+然后在浏览器打开 `/admin`，输入同一个密钥即可进入管理台。密钥只保存在当前标签页的 `sessionStorage`，关闭标签页即失效；服务端如果留空 `ADMIN_TOKEN`，管理接口会统一返回 503。
+
+> 如果前面有 Nginx，记得把 `client_max_body_size` 调到大于视频上限（例如 `client_max_body_size 60m;`），否则大视频会在 Nginx 层被 413 拦截。
+
 ### Nginx 反向代理
 
 ```nginx
@@ -337,7 +414,7 @@ server {
     listen 443 ssl http2;
     server_name island.example.com;
 
-    client_max_body_size 12m;        # 要大于 MAX_UPLOAD_MB
+    client_max_body_size 60m;        # 要大于 MAX_VIDEO_MB + 表单开销
 
     location / {
         proxy_pass http://127.0.0.1:8080;
@@ -352,6 +429,33 @@ server {
 
 此时把后端 `TRUST_PROXY=true`，限流和点赞兜底才会使用真实客户端 IP。
 
+### 依赖安全自检
+
+```bash
+make audit
+# 等价于：
+npm --prefix frontend audit --audit-level=high
+cd backend && go run golang.org/x/vuln/cmd/govulncheck@latest ./...
+```
+
+当前基线（2026-10）：
+
+| 组件 | 版本 | 说明 |
+| --- | --- | --- |
+| Astro | 7.4.2 | `npm audit` 0 漏洞 |
+| Tailwind CSS | 4.3.3 | 最新稳定版 |
+| Go | 1.27.3 | 标准库扫描通过 |
+| chi | v5.5.0 | 修复 GO-2025-3770 等历史问题 |
+| pgx | v5.11.0 | 最新稳定版 |
+| Node 镜像 | `node:24-alpine` | 当前 Active LTS（Node 26 尚未 LTS） |
+| Go 镜像 | `golang:1.27-alpine` | 跟随最新 1.27.x 补丁 |
+| 运行镜像 | `alpine:3.23` | 最新稳定版 |
+| PostgreSQL | `postgres:18-alpine` | 最新稳定大版本 |
+
+`govulncheck` 结果：`No vulnerabilities found.`
+
+> 如果已有 PostgreSQL 16 的 `pgdata` volume，升级到 18 前必须先 `pg_dump` / `pg_restore`，不能直接复用旧数据目录。
+
 ### 数据与备份
 
 - 上传目录必须挂载持久化 volume，并与数据库一起备份；
@@ -361,13 +465,13 @@ server {
 ### 安全清单
 
 - 一定修改默认 `ADMIN_TOKEN`，并通过 HTTPS 传输；
-- 已限制上传类型、大小、文件名与服务端嗅探；生产可在 Nginx 再加 `client_max_body_size` 与速率限制；
+- 已限制上传类型、大小、文件名与服务端嗅探；HEIC/AVIF 转码避免格式兼容问题；生产可在 Nginx 再加 `client_max_body_size` 与速率限制；
 - 用户内容全部转义渲染，管理端删除是唯一的内容治理入口；
 - 单实例内存限流足够班级规模；横向扩容时把限流与点赞去重迁移到 Redis。
 
 ### 可扩展方向
 
-- 图片压缩 / 自动转 WebP / 去除 EXIF（`bimg`、`imaging` 或上传后异步任务）；
+- 手机 HEIC/AVIF 自动转 JPEG 已完成；后续可加 WebP 输出、去除 EXIF、上传后异步压缩；
 - 举报与审核队列、敏感词过滤；
 - 班级登录（邀请码 / 学校 SSO）与更细的管理权限；
 - 回复楼中楼、@ 提醒、每周精选；
@@ -384,6 +488,8 @@ make dev-web    # 终端 B：Astro :4321（代理 API）
 make build      # 生产构建 → bin/shiguang-island
 make run        # 构建并运行
 make docker     # docker compose up -d --build
+make audit      # 前端 + Go 依赖漏洞扫描
+make token      # 生成随机 ADMIN_TOKEN
 make clean      # 清理构建产物
 ```
 

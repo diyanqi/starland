@@ -9,7 +9,7 @@ import (
 
 func (s *Store) ListPhotos(ctx context.Context, clientID string, cursor int64, limit int) ([]Photo, error) {
 	rows, err := s.pool.Query(ctx, `
-		SELECT p.id, p.url, p.caption, p.nickname, p.likes, p.created_at,
+		SELECT p.id, p.url, p.kind, p.caption, p.nickname, p.likes, p.created_at,
 		       EXISTS (
 		           SELECT 1 FROM photo_likes l
 		           WHERE l.photo_id = p.id AND l.client_id = $1
@@ -26,7 +26,7 @@ func (s *Store) ListPhotos(ctx context.Context, clientID string, cursor int64, l
 	photos := make([]Photo, 0, limit)
 	for rows.Next() {
 		var p Photo
-		if err := rows.Scan(&p.ID, &p.URL, &p.Caption, &p.Nickname, &p.Likes, &p.CreatedAt, &p.Liked); err != nil {
+		if err := rows.Scan(&p.ID, &p.URL, &p.Kind, &p.Caption, &p.Nickname, &p.Likes, &p.CreatedAt, &p.Liked); err != nil {
 			return nil, err
 		}
 		photos = append(photos, p)
@@ -34,14 +34,14 @@ func (s *Store) ListPhotos(ctx context.Context, clientID string, cursor int64, l
 	return photos, rows.Err()
 }
 
-func (s *Store) CreatePhoto(ctx context.Context, url, caption, nickname string) (Photo, error) {
+func (s *Store) CreatePhoto(ctx context.Context, url, caption, nickname, kind string) (Photo, error) {
 	var p Photo
 	err := s.pool.QueryRow(ctx, `
-		INSERT INTO photos (url, caption, nickname)
-		VALUES ($1, $2, $3)
-		RETURNING id, url, caption, nickname, likes, created_at`,
-		url, caption, nickname,
-	).Scan(&p.ID, &p.URL, &p.Caption, &p.Nickname, &p.Likes, &p.CreatedAt)
+		INSERT INTO photos (url, kind, caption, nickname)
+		VALUES ($1, $2, $3, $4)
+		RETURNING id, url, kind, caption, nickname, likes, created_at`,
+		url, kind, caption, nickname,
+	).Scan(&p.ID, &p.URL, &p.Kind, &p.Caption, &p.Nickname, &p.Likes, &p.CreatedAt)
 	return p, err
 }
 

@@ -32,12 +32,12 @@ const features = [
     </div>
 
     <div class="relative">
-      <p class="section-kicker">Class Memory · Est. 2026</p>
+      <p class="section-kicker">自动化与光电 2609 班 · Class Memory · Est. 2026</p>
       <h1 class="mt-4 font-serif text-[2.6rem] leading-[1.12] tracking-tight sm:text-6xl">
         把散落的日常，<br class="sm:hidden" />收进一座小岛
       </h1>
       <p class="mt-5 max-w-xl text-[15px] leading-7 text-ink-soft">
-        「拾光星岛」是我们班的秘密基地。一张照片、一句心事，都会在这里被温柔收好，慢慢发光。
+        「拾光星岛」是自动化与光电 2609 班的秘密基地。一张照片、一句心事，都会在这里被温柔收好，慢慢发光。
       </p>
       <div class="mt-7 flex flex-wrap gap-3">
         <a href="/photos" class="btn-primary">
@@ -52,7 +52,7 @@ const features = [
       <div class="mt-8 flex flex-wrap items-center gap-x-5 gap-y-2 text-[11px] text-ink-soft/90">
         <span class="inline-flex items-center gap-1.5"><span class="size-1.5 rounded-full bg-sea"></span>无需登录</span>
         <span class="inline-flex items-center gap-1.5"><span class="size-1.5 rounded-full bg-star"></span>支持匿名</span>
-        <span class="inline-flex items-center gap-1.5"><span class="size-1.5 rounded-full bg-blush"></span>只属于我们班</span>
+        <span class="inline-flex items-center gap-1.5"><span class="size-1.5 rounded-full bg-blush"></span>自动化与光电 2609 班专属</span>
       </div>
     </div>
   </section>
@@ -132,8 +132,13 @@ const features = [
         .map(
           (photo) => `
             <a href="/photos" class="group relative block overflow-hidden rounded-2xl bg-paper-deep">
-              <img src="${escapeHtml(photo.url)}" alt="${escapeHtml(photo.caption || '同学分享的照片')}"
-                   loading="lazy" class="aspect-square w-full object-cover transition duration-500 group-hover:scale-[1.04]" />
+              ${
+                photo.kind === 'video'
+                  ? `<video src="${escapeHtml(photo.url)}" muted loop playsinline autoplay preload="metadata"
+                            class="aspect-square w-full object-cover transition duration-500 group-hover:scale-[1.04]"></video>`
+                  : `<img src="${escapeHtml(photo.url)}" alt="${escapeHtml(photo.caption || '同学分享的照片')}"
+                          loading="lazy" class="aspect-square w-full object-cover transition duration-500 group-hover:scale-[1.04]" />`
+              }
               <span class="absolute inset-x-0 bottom-0 bg-gradient-to-t from-ink/70 to-transparent p-2.5 text-[11px] leading-snug text-white/90 line-clamp-1">
                 ${escapeHtml(photo.caption || photo.nickname)}
               </span>

@@ -1,6 +1,7 @@
 export interface Photo {
   id: number;
   url: string;
+  kind: 'image' | 'video';
   caption: string;
   nickname: string;
   likes: number;

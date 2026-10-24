@@ -5,6 +5,7 @@ import "time"
 type Photo struct {
 	ID        int64     `json:"id"`
 	URL       string    `json:"url"`
+	Kind      string    `json:"kind"`
 	Caption   string    `json:"caption"`
 	Nickname  string    `json:"nickname"`
 	Likes     int       `json:"likes"`

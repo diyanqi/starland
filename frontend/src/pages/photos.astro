@@ -3,19 +3,20 @@ import Layout from '../layouts/Layout.astro';
 import Icon from '../components/Icon.astro';
 ---
 
-<Layout title="照片墙" description="拾光星岛的照片墙：上传属于我们班的瞬间，写下图注，给喜欢的光点个赞。">
+<Layout title="照片墙" description="拾光星岛的照片墙：上传属于自动化与光电 2609 班的瞬间，写下图注，给喜欢的光点个赞。">
   <section class="pt-2 sm:pt-6">
     <div class="flex flex-wrap items-end justify-between gap-4">
       <div>
-        <p class="section-kicker">Photo Wall</p>
+        <p class="section-kicker">Photo Wall · 2609</p>
         <h1 class="mt-3 font-serif text-3xl sm:text-4xl">把今天的光，挂上墙</h1>
         <p class="mt-2 max-w-lg text-sm leading-6 text-ink-soft">
-          不追求完美构图，只收藏真实瞬间。支持 JPG / PNG / GIF / WebP，单张不超过 8MB。
+          自动化与光电 2609 班的照片墙。支持 JPG / PNG / GIF / WebP / HEIC / AVIF 图片和 MP4 / MOV / WebM 实况，
+          可一次选择多张；图片不超过 8MB，视频不超过 50MB。
         </p>
       </div>
       <button id="open-upload" type="button" class="btn-primary">
         <Icon name="camera" class="size-4" />
-        放一张照片
+        放照片
       </button>
     </div>
 
@@ -28,16 +29,25 @@ import Icon from '../components/Icon.astro';
             class="flex aspect-[4/3] cursor-pointer flex-col items-center justify-center overflow-hidden rounded-2xl border border-dashed border-line bg-paper-deep/40 text-center transition hover:border-sea/60"
           >
             <img id="photo-preview" class="hidden size-full object-cover" alt="图片预览" />
+            <video
+              id="photo-preview-video"
+              class="hidden size-full object-cover"
+              muted
+              loop
+              playsinline
+              autoplay
+            ></video>
             <span id="drop-hint" class="flex flex-col items-center gap-2 px-4 text-sm text-ink-soft">
               <Icon name="camera" class="size-6 text-sea-deep" />
-              点按选择一张图片
+              点按选择照片或实况视频（可多选）
             </span>
           </label>
           <input
             id="photo-file"
             name="image"
             type="file"
-            accept="image/jpeg,image/png,image/gif,image/webp"
+            accept="image/*,video/*"
+            multiple
             class="sr-only"
           />
         </div>
@@ -107,6 +117,13 @@ import Icon from '../components/Icon.astro';
       <Icon name="close" class="size-5" />
     </button>
     <img id="lightbox-img" alt="" class="max-h-[85vh] max-w-full rounded-2xl object-contain shadow-2xl" />
+    <video
+      id="lightbox-video"
+      class="hidden max-h-[85vh] max-w-full rounded-2xl object-contain shadow-2xl"
+      controls
+      playsinline
+      loop
+    ></video>
   </div>
 </Layout>
 
@@ -114,7 +131,8 @@ import Icon from '../components/Icon.astro';
   import { api, type PageResult, type Photo } from '../lib/client/api';
   import { errorMessage, escapeHtml, formatTime, toast } from '../lib/client/ui';
 
-  const MAX_UPLOAD_BYTES = 8 * 1024 * 1024;
+  const MAX_IMAGE_BYTES = 8 * 1024 * 1024;
+  const MAX_VIDEO_BYTES = 50 * 1024 * 1024;
 
   const grid = document.querySelector<HTMLElement>('#photo-grid');
   const empty = document.querySelector<HTMLElement>('#photo-empty');
@@ -124,12 +142,14 @@ import Icon from '../components/Icon.astro';
   const form = document.querySelector<HTMLFormElement>('#upload-panel');
   const fileInput = document.querySelector<HTMLInputElement>('#photo-file');
   const preview = document.querySelector<HTMLImageElement>('#photo-preview');
+  const previewVideo = document.querySelector<HTMLVideoElement>('#photo-preview-video');
   const dropHint = document.querySelector<HTMLElement>('#drop-hint');
   const uploadHint = document.querySelector<HTMLElement>('#upload-hint');
   const submitButton = document.querySelector<HTMLButtonElement>('#submit-upload');
 
   const lightbox = document.querySelector<HTMLElement>('#lightbox');
   const lightboxImage = document.querySelector<HTMLImageElement>('#lightbox-img');
+  const lightboxVideo = document.querySelector<HTMLVideoElement>('#lightbox-video');
   const lightboxClose = document.querySelector<HTMLButtonElement>('#lightbox-close');
 
   let cursor = 0;
@@ -137,13 +157,29 @@ import Icon from '../components/Icon.astro';
   let exhausted = false;
   let previewUrl: string | null = null;
 
+  function isVideoFile(file: File): boolean {
+    return file.type.startsWith('video/') || /\.(mp4|mov|webm|m4v)$/i.test(file.name);
+  }
+
+  function formatSize(bytes: number): string {
+    return bytes >= 1024 * 1024
+      ? `${(bytes / 1024 / 1024).toFixed(1)} MB`
+      : `${Math.max(1, Math.round(bytes / 1024))} KB`;
+  }
+
   function photoCard(photo: Photo): string {
+    const media =
+      photo.kind === 'video'
+        ? `<video src="${escapeHtml(photo.url)}" muted loop playsinline autoplay preload="metadata"
+                 class="w-full object-cover"></video>`
+        : `<img src="${escapeHtml(photo.url)}" alt="${escapeHtml(photo.caption || '同学分享的照片')}"
+                 loading="lazy" class="w-full object-cover" />`;
     return `
       <article class="photo-card mb-3 break-inside-avoid overflow-hidden rounded-2xl border border-line/70 bg-white/75 shadow-soft sm:mb-4">
-        <button type="button" class="block w-full cursor-zoom-in" data-lightbox="${escapeHtml(photo.url)}"
-                aria-label="放大查看照片">
-          <img src="${escapeHtml(photo.url)}" alt="${escapeHtml(photo.caption || '同学分享的照片')}"
-               loading="lazy" class="w-full object-cover" />
+        <button type="button" class="relative block w-full cursor-zoom-in" data-lightbox="${escapeHtml(photo.url)}"
+                data-kind="${photo.kind}" aria-label="${photo.kind === 'video' ? '播放实况' : '放大查看照片'}">
+          ${media}
+          ${photo.kind === 'video' ? '<span class="absolute left-2 top-2 rounded-full bg-ink/70 px-2 py-0.5 text-[10px] tracking-wide text-paper">实况</span>' : ''}
         </button>
         <div class="space-y-2 px-3 py-3">
           ${photo.caption ? `<p class="text-[13px] leading-6 text-ink/90">${escapeHtml(photo.caption)}</p>` : ''}
@@ -201,7 +237,7 @@ import Icon from '../components/Icon.astro';
 
     const imageButton = target.closest<HTMLElement>('[data-lightbox]');
     if (imageButton) {
-      openLightbox(imageButton.dataset.lightbox ?? '');
+      openLightbox(imageButton.dataset.lightbox ?? '', imageButton.dataset.kind ?? 'image');
       return;
     }
 
@@ -231,20 +267,31 @@ import Icon from '../components/Icon.astro';
     }
   });
 
-  function openLightbox(url: string) {
-    if (!lightbox || !lightboxImage || !url) return;
-    lightboxImage.src = url;
-    lightboxImage.alt = '照片预览';
+  function openLightbox(url: string, kind: string) {
+    if (!lightbox || !lightboxImage || !lightboxVideo || !url) return;
+    const video = kind === 'video';
+    lightboxImage.classList.toggle('hidden', video);
+    lightboxVideo.classList.toggle('hidden', !video);
+    if (video) {
+      lightboxVideo.src = url;
+      void lightboxVideo.play().catch(() => undefined);
+    } else {
+      lightboxImage.src = url;
+      lightboxImage.alt = '照片预览';
+    }
     lightbox.classList.remove('hidden');
     lightbox.classList.add('flex');
     document.body.style.overflow = 'hidden';
   }
 
   function closeLightbox() {
-    if (!lightbox || !lightboxImage) return;
+    if (!lightbox || !lightboxImage || !lightboxVideo) return;
     lightbox.classList.add('hidden');
     lightbox.classList.remove('flex');
     lightboxImage.removeAttribute('src');
+    lightboxVideo.pause();
+    lightboxVideo.removeAttribute('src');
+    lightboxVideo.load();
     document.body.style.overflow = '';
   }
 
@@ -262,14 +309,22 @@ import Icon from '../components/Icon.astro';
     form?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
   });
 
-  function resetUploadForm() {
-    form?.reset();
+  function clearPreview() {
     if (previewUrl) {
       URL.revokeObjectURL(previewUrl);
       previewUrl = null;
     }
     preview?.classList.add('hidden');
     preview?.removeAttribute('src');
+    previewVideo?.classList.add('hidden');
+    previewVideo?.pause();
+    previewVideo?.removeAttribute('src');
+    previewVideo?.load();
+  }
+
+  function resetUploadForm() {
+    form?.reset();
+    clearPreview();
     dropHint?.classList.remove('hidden');
     if (uploadHint) uploadHint.textContent = '';
     form?.classList.add('hidden');
@@ -278,61 +333,109 @@ import Icon from '../components/Icon.astro';
 
   cancelButton?.addEventListener('click', resetUploadForm);
 
+  preview?.addEventListener('error', () => {
+    if (uploadHint && !uploadHint.textContent.includes('HEIC')) {
+      uploadHint.textContent = 'HEIC / AVIF 预览不可用，上传后会自动转换成 JPG';
+    }
+  });
+
   fileInput?.addEventListener('change', () => {
-    const file = fileInput.files?.[0];
-    if (!file) return;
-    if (!file.type.startsWith('image/')) {
-      toast('请选择图片文件', 'error');
-      fileInput.value = '';
+    const files = Array.from(fileInput.files ?? []);
+    if (files.length === 0) {
+      clearPreview();
+      dropHint?.classList.remove('hidden');
+      if (uploadHint) uploadHint.textContent = '';
       return;
     }
-    if (file.size > MAX_UPLOAD_BYTES) {
-      toast('图片超过 8MB，请压缩后再上传', 'error');
+
+    const oversized = files.find((file) =>
+      file.size > (isVideoFile(file) ? MAX_VIDEO_BYTES : MAX_IMAGE_BYTES),
+    );
+    if (oversized) {
+      toast(
+        `「${oversized.name}」超过${isVideoFile(oversized) ? ' 50MB 视频' : ' 8MB 图片'}上限`,
+        'error',
+      );
       fileInput.value = '';
+      clearPreview();
+      dropHint?.classList.remove('hidden');
+      if (uploadHint) uploadHint.textContent = '';
       return;
     }
-    if (previewUrl) URL.revokeObjectURL(previewUrl);
-    previewUrl = URL.createObjectURL(file);
-    if (preview) {
+
+    clearPreview();
+    const first = files[0];
+    previewUrl = URL.createObjectURL(first);
+    if (isVideoFile(first)) {
+      if (previewVideo) {
+        previewVideo.src = previewUrl;
+        previewVideo.classList.remove('hidden');
+      }
+    } else if (preview) {
       preview.src = previewUrl;
       preview.classList.remove('hidden');
     }
     dropHint?.classList.add('hidden');
-    if (uploadHint) uploadHint.textContent = `${(file.size / 1024 / 1024).toFixed(1)} MB`;
+
+    const total = files.reduce((sum, file) => sum + file.size, 0);
+    if (uploadHint) {
+      uploadHint.textContent =
+        files.length > 1 ? `已选择 ${files.length} 个文件 · ${formatSize(total)}` : formatSize(first.size);
+    }
   });
 
   form?.addEventListener('submit', async (event) => {
     event.preventDefault();
-    const file = fileInput?.files?.[0];
-    if (!file) {
+    const files = Array.from(fileInput?.files ?? []);
+    if (files.length === 0) {
       toast('先选一张照片吧', 'error');
       return;
     }
 
-    const data = new FormData();
-    data.append('image', file);
-    data.append('caption', (document.querySelector<HTMLInputElement>('#photo-caption')?.value ?? '').trim());
-    data.append('nickname', (document.querySelector<HTMLInputElement>('#photo-nickname')?.value ?? '').trim());
+    const caption = (document.querySelector<HTMLInputElement>('#photo-caption')?.value ?? '').trim();
+    const nickname = (document.querySelector<HTMLInputElement>('#photo-nickname')?.value ?? '').trim();
 
-    if (submitButton) {
-      submitButton.disabled = true;
-      submitButton.textContent = '正在挂上墙…';
+    if (submitButton) submitButton.disabled = true;
+    let uploaded = 0;
+    const failures: string[] = [];
+
+    for (let index = 0; index < files.length; index++) {
+      if (submitButton) {
+        submitButton.textContent =
+          files.length > 1 ? `上传中 ${index + 1}/${files.length}…` : '正在挂上墙…';
+      }
+
+      const data = new FormData();
+      data.append('image', files[index]);
+      data.append('caption', caption);
+      data.append('nickname', nickname);
+
+      try {
+        const photo = await api<Photo>('/api/photos', { method: 'POST', body: data });
+        grid?.insertAdjacentHTML('afterbegin', photoCard(photo));
+        uploaded++;
+      } catch (error) {
+        failures.push(`「${files[index].name}」${errorMessage(error)}`);
+      }
     }
 
-    try {
-      const photo = await api<Photo>('/api/photos', { method: 'POST', body: data });
-      grid?.insertAdjacentHTML('afterbegin', photoCard(photo));
+    if (submitButton) {
+      submitButton.disabled = false;
+      submitButton.textContent = '挂上墙';
+    }
+
+    if (uploaded > 0) {
       empty?.classList.add('hidden');
       resetUploadForm();
-      toast('照片已经挂上墙啦 ✦');
       grid?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-    } catch (error) {
-      toast(errorMessage(error), 'error');
-    } finally {
-      if (submitButton) {
-        submitButton.disabled = false;
-        submitButton.textContent = '挂上墙';
-      }
+    }
+
+    if (failures.length === 0) {
+      toast(uploaded > 1 ? `${uploaded} 个瞬间已经挂上墙啦 ✦` : '照片已经挂上墙啦 ✦');
+    } else if (uploaded === 0) {
+      toast(failures[0], 'error');
+    } else {
+      toast(`${uploaded} 个成功，${failures.length} 个失败：${failures[0]}`, 'error');
     }
   });
 

@@ -3,9 +3,9 @@ import Layout from '../layouts/Layout.astro';
 import Icon from '../components/Icon.astro';
 ---
 
-<Layout title="管理台" description="拾光星岛管理台：删除违规照片与留言。">
+<Layout title="管理台" description="拾光星岛管理台：自动化与光电 2609 班的内容管理，删除违规照片与留言。">
   <section class="pt-2 sm:pt-6">
-    <p class="section-kicker">Admin</p>
+    <p class="section-kicker">Admin · 2609</p>
     <h1 class="mt-3 font-serif text-3xl sm:text-4xl">岛屿管理台</h1>
     <p class="mt-2 max-w-xl text-sm leading-6 text-ink-soft">
       输入服务端配置的 <code class="rounded bg-paper-deep px-1.5 py-0.5 text-[12px]">ADMIN_TOKEN</code> 后即可删除违规内容。令牌只保存在当前标签页，关闭即失效。
@@ -82,10 +82,15 @@ import Icon from '../components/Icon.astro';
   }
 
   function photoRow(photo: Photo): string {
+    const thumb =
+      photo.kind === 'video'
+        ? `<video src="${escapeHtml(photo.url)}" muted loop playsinline preload="metadata"
+                  class="size-16 shrink-0 rounded-xl object-cover"></video>`
+        : `<img src="${escapeHtml(photo.url)}" alt="" loading="lazy"
+                class="size-16 shrink-0 rounded-xl object-cover" />`;
     return `
       <div class="flex items-start gap-3 rounded-2xl border border-line/80 bg-white/70 p-3" data-photo-row="${photo.id}">
-        <img src="${escapeHtml(photo.url)}" alt="" loading="lazy"
-             class="size-16 shrink-0 rounded-xl object-cover" />
+        ${thumb}
         <div class="min-w-0 flex-1">
           <p class="truncate text-sm text-ink">${escapeHtml(photo.caption || '（无图注）')}</p>
           <p class="mt-1 text-[11px] text-ink-soft">

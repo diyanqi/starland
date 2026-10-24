@@ -8,6 +8,8 @@ export default defineConfig({
   build: {
     format: 'directory',
   },
+  // Astro 7 默认改用 JSX 式空白处理，这里保持 HTML 感知行为，避免行内元素间空格丢失。
+  compressHTML: true,
   vite: {
     plugins: [tailwindcss()],
   },
